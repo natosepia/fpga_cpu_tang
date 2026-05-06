@@ -55,18 +55,20 @@ VPS（Ubuntu 22.04）上でシミュレーション・合成を行い、Win11 �
 
 ### Tang Nano 9K 主要ピンマップ
 
-| 信号 | ピン番号 | 備考 |
-|------|----------|------|
-| クロック (27MHz) | 52 | PULL_MODE=UP |
-| LED[0] - LED[5] | 10, 11, 13, 14, 15, 16 | オンボード6個、Low=点灯 |
-| ボタン S1 | 3 | IO_TYPE=LVCMOS18（1.8V BANK） |
-| ボタン S2 | 4 | IO_TYPE=LVCMOS18（JTAG兼用） |
-| UART TX | 17 | BL702 経由で USB シリアル |
-| UART RX | 18 | BL702 経由で USB シリアル |
+公式 Schematic `Tang_Nano_9K_3672_Schematic.pdf` で確認済み（[Sipeed Wiki](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html) からリンク）。
 
-> **NOTE（要実機検証）**: S1/S2 のピン番号 (3/4) は Tang Nano 9K のロットで異なる可能性がある。
-> 最初の `make synth` 前に [Sipeed 公式 schematic](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html)
-> で実機リビジョンと突合し、必要なら本表と各 `.cst` のピン番号を更新すること。
+| 信号 | ピン番号 | Schematic ラベル | 備考 |
+|------|----------|-----------------|------|
+| クロック (27MHz) | 52 | `PIN52_XTAL_IN` | PULL_MODE=UP |
+| LED[0] - LED[5] | 10, 11, 13, 14, 15, 16 | `PIN10_IOL15A_LED1` 〜 | オンボード6個、Low=点灯 |
+| ボタン S1 | 3 | `PIN3_IOT2A_BUTTON_S1_1V8` | IO_TYPE=LVCMOS18（BANK3 / 1.8V） |
+| ボタン S2 | 4 | `PIN4_IOL5A_JTAG_SEL_S2_1V8` | IO_TYPE=LVCMOS18（JTAG_SEL 兼用） |
+| UART TX | 17 | `PIN17_IOB2A_FPGA_TX` | BL702 経由で USB シリアル |
+| UART RX | 18 | `PIN18_IOB2B_FPGA_RX` | BL702 経由で USB シリアル |
+
+> **NOTE**: 公式 Schematic 上の左下「LED x 7」セクションラベルと回路実体（LED 6個）に食い違いがあるが、
+> 回路を辿ると LED は **6個**（Schematic のラベル誤記の可能性が高い）。
+> 本表の `LED[0]-LED[5]` 6個構成で問題ない想定。実機で焼いて 6個 全点灯することを最初の Lチカで確認する。
 
 ### 合成パラメータ
 
@@ -417,8 +419,8 @@ IO_LOC  "led[5]" 16;
 > **NOTE（要実機検証）**: Gowin CST のコメントは `#` を使う（`//` は Apicula/nextpnr-himbaechel のパーサで未対応の可能性）。
 > もし `//` で動作した場合は注釈を更新すること。
 >
-> **NOTE（要実機検証）**: S1/S2 のピン番号 (3/4) は Tang Nano 9K のロットで異なる可能性がある。
-> [Sipeed 公式 schematic](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html) で実機リビジョンと突合すること。
+> **NOTE**: S1（pin 3 / IOT2A）／S2（pin 4 / IOL5A）は公式 Schematic `Tang_Nano_9K_3672` で確認済み。
+> S1 は BANK3（1.8V）に接続されているため `IO_TYPE=LVCMOS18` 指定が必須。S2 は JTAG_SEL 兼用。
 
 ### 6.4 Makefile
 
