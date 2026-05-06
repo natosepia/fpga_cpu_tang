@@ -64,6 +64,10 @@ VPS（Ubuntu 22.04）上でシミュレーション・合成を行い、Win11 �
 | UART TX | 17 | BL702 経由で USB シリアル |
 | UART RX | 18 | BL702 経由で USB シリアル |
 
+> **NOTE（要実機検証）**: S1/S2 のピン番号 (3/4) は Tang Nano 9K のロットで異なる可能性がある。
+> 最初の `make synth` 前に [Sipeed 公式 schematic](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html)
+> で実機リビジョンと突合し、必要なら本表と各 `.cst` のピン番号を更新すること。
+
 ### 合成パラメータ
 
 | パラメータ | 値 |
@@ -102,18 +106,27 @@ Gowin EDA ではなく OSS CAD Suite を採用する理由: ライセンス申�
 最新リリースを [GitHub Releases](https://github.com/YosysHQ/oss-cad-suite-build/releases) から取得する。
 ファイル名パターン: `oss-cad-suite-linux-x64-YYYYMMDD.tgz`
 
+リリースは ほぼ nightly で更新されるため、日付決め打ちではなく最新タグを取得して落とす:
+
 ```bash
-# 最新リリースのダウンロード（日付部分は最新に読み替えること）
-wget https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-04-07/oss-cad-suite-linux-x64-20260407.tgz
+# 最新リリースのタグ名を取得（例: "2026-04-07"）
+LATEST=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest \
+  | grep -oP '"tag_name":\s*"\K[^"]+')
+# ファイル名側のフォーマット（例: "20260407"）
+DATE_PACKED=$(echo "$LATEST" | tr -d '-')
+echo "Downloading oss-cad-suite ${LATEST}"
+
+wget "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${LATEST}/oss-cad-suite-linux-x64-${DATE_PACKED}.tgz"
 ```
 
-> **NOTE**: リリース日は頻繁に更新される（ほぼ nightly）。
-> https://github.com/YosysHQ/oss-cad-suite-build/releases/latest で最新を確認すること。
+> **NOTE**: 自動取得スクリプトが何らかの理由で動かない場合は、ブラウザで
+> https://github.com/YosysHQ/oss-cad-suite-build/releases/latest を開いて手動でDLすること。
 
 #### 2.2.2 展開
 
 ```bash
-tar xzf oss-cad-suite-linux-x64-20260407.tgz -C ~/
+# 上記の DATE_PACKED が同じシェルで生きていない場合は、ファイル名を直接指定する
+tar xzf oss-cad-suite-linux-x64-${DATE_PACKED}.tgz -C ~/
 ```
 
 `~/oss-cad-suite/` 配下にツール群が展開される。
@@ -241,6 +254,9 @@ VPS に VSCode Remote SSH で接続して開発する。以下の拡張をイン
 
 ## 5. プロジェクト構造の作成
 
+Phase 1 着手時点では `00_counter`（環境確認用 Lチカ）と `01_uart`（UART Hello World）のみ作成する。
+RV32I／RV32M のディレクトリは Rule of Three の観点から、必要になった時点で同じパターンで掘る。
+
 ```bash
 mkdir -p /home/natosepia/project/fpga_cpu_tang/00_counter/src
 mkdir -p /home/natosepia/project/fpga_cpu_tang/00_counter/tb
@@ -248,15 +264,9 @@ mkdir -p /home/natosepia/project/fpga_cpu_tang/00_counter/constraints
 mkdir -p /home/natosepia/project/fpga_cpu_tang/01_uart/src
 mkdir -p /home/natosepia/project/fpga_cpu_tang/01_uart/tb
 mkdir -p /home/natosepia/project/fpga_cpu_tang/01_uart/constraints
-mkdir -p /home/natosepia/project/fpga_cpu_tang/02_rv32i_core/src
-mkdir -p /home/natosepia/project/fpga_cpu_tang/02_rv32i_core/tb
-mkdir -p /home/natosepia/project/fpga_cpu_tang/02_rv32i_core/constraints
-mkdir -p /home/natosepia/project/fpga_cpu_tang/03_rv32m_core/src
-mkdir -p /home/natosepia/project/fpga_cpu_tang/03_rv32m_core/tb
-mkdir -p /home/natosepia/project/fpga_cpu_tang/03_rv32m_core/constraints
 ```
 
-完成後の構造:
+最終的な構造（参考、Phase 進行に応じて段階的に追加）:
 
 ```
 fpga_cpu_tang/
@@ -337,7 +347,9 @@ endmodule
 `00_counter/tb/led_tb.v`:
 
 ```verilog
-`timescale 1ns / 1ps
+// timescale は 1ps 精度。`#18.5`（1ns単位の小数遅延）は実装依存で丸められる
+// ことがあるため、ピコ秒単位で記述して半周期 18500ps = 18.5ns を表現する。
+`timescale 1ps / 1ps
 
 module led_tb;
 
@@ -351,21 +363,23 @@ module led_tb;
         .led(led)
     );
 
-    // 27MHz クロック生成（周期 ≈ 37ns）
+    // 27MHz クロック生成（半周期 18500ps = 18.5ns）
     initial sys_clk = 0;
-    always #18.5 sys_clk = ~sys_clk;
+    always #18500 sys_clk = ~sys_clk;
 
     initial begin
         $dumpfile("dump.vcd");
         $dumpvars(0, led_tb);
 
-        // リセット
+        // リセット（100,000ps = 100ns 保持）
         sys_rst_n = 0;
-        #100;
+        #100_000;
         sys_rst_n = 1;
 
-        // 適当な時間シミュレーション（全 LED 回転を見るには長時間必要）
-        #1_000_000;
+        // 1ms 相当（1,000,000,000ps）シミュレーション
+        // 全 LED ローテーションは 0.5秒×6 = 3秒 必要なため、
+        // 波形では「カウンタが進んでいること」までを確認する想定
+        #1_000_000_000;
 
         $display("Simulation finished.");
         $finish;
@@ -379,19 +393,19 @@ endmodule
 `00_counter/constraints/tangnano9k.cst`:
 
 ```
-// Tang Nano 9K ピン制約
-// デバイス: GW1NR-LV9QN88PC6/I5
+# Tang Nano 9K ピン制約
+# デバイス: GW1NR-LV9QN88PC6/I5
 
-// クロック（27MHz オンボード水晶）
+# クロック（27MHz オンボード水晶）
 IO_LOC  "sys_clk" 52;
 IO_PORT "sys_clk" PULL_MODE=UP;
 
-// リセットボタン（S1）
-// S1 は BANK0（1.8V）に接続されている
+# リセットボタン（S1）
+# S1 は BANK0（1.8V）に接続されている
 IO_LOC  "sys_rst_n" 3;
 IO_PORT "sys_rst_n" PULL_MODE=UP IO_TYPE=LVCMOS18;
 
-// オンボード LED x6（active low: Low で点灯）
+# オンボード LED x6（active low: Low で点灯）
 IO_LOC  "led[0]" 10;
 IO_LOC  "led[1]" 11;
 IO_LOC  "led[2]" 13;
@@ -399,6 +413,12 @@ IO_LOC  "led[3]" 14;
 IO_LOC  "led[4]" 15;
 IO_LOC  "led[5]" 16;
 ```
+
+> **NOTE（要実機検証）**: Gowin CST のコメントは `#` を使う（`//` は Apicula/nextpnr-himbaechel のパーサで未対応の可能性）。
+> もし `//` で動作した場合は注釈を更新すること。
+>
+> **NOTE（要実機検証）**: S1/S2 のピン番号 (3/4) は Tang Nano 9K のロットで異なる可能性がある。
+> [Sipeed 公式 schematic](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html) で実機リビジョンと突合すること。
 
 ### 6.4 Makefile
 
@@ -451,6 +471,12 @@ help:
 	@echo "make clean — ビルド成果物を削除"
 ```
 
+> **NOTE（要実機検証）**: nextpnr-himbaechel の引数仕様について
+>
+> - `--device` に渡すデバイス文字列 `GW1NR-LV9QN88PC6/I5` には `/` が含まれる。Make 変数経由で展開した際にシェル/Make の解釈で事故る場合は、Makefile 上で**ダブルクォートで囲む**か、必要に応じて `\/` でエスケープすること。
+> - `--vopt family=...` / `--vopt cst=...` の渡し方は OSS CAD Suite のリリースバージョンで揺れがあった（過去には `--write` 周辺の引数も含めて差異あり）。実機で `make synth` 通らない場合は `nextpnr-himbaechel --help` で現バージョンの正規構文を確認すること。
+> - 1回実機で通ったら、本書の Makefile を確定版に書き換える。
+
 ### 6.5 動作確認手順
 
 #### Step 1: VPS でシミュレーション
@@ -473,11 +499,8 @@ make synth
 
 #### Step 3: .fs を Win11 に転送
 
-Syncthing で自動同期（後述）、または手動で scp:
-
-```bash
-scp user@vps:/home/natosepia/project/fpga_cpu_tang/00_counter/build/led.fs C:\fpga\
-```
+VPS↔Win11 の同期は Syncthing に一本化する（[7. ファイル転送（Syncthing）](#7-ファイル転送syncthing) 参照）。
+合成完了後、`build/led.fs` が Win11 側の同期フォルダに自動配信される。
 
 #### Step 4: Win11 で焼き込み
 
@@ -599,7 +622,7 @@ TM1638 は SPI ライクな 3 線式インターフェース:
 ### 8.5 制約ファイルへの追記
 
 ```
-// TM1638 接続（ピン番号は配線に合わせて変更）
+# TM1638 接続（ピン番号は配線に合わせて変更）
 IO_LOC  "tm1638_stb" 25;
 IO_PORT "tm1638_stb" IO_TYPE=LVCMOS33;
 IO_LOC  "tm1638_clk" 26;
