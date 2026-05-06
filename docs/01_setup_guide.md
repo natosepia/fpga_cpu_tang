@@ -63,8 +63,8 @@ VPS（Ubuntu 22.04）上でシミュレーション・合成を行い、Win11 �
 | LED[0] - LED[5] | 10, 11, 13, 14, 15, 16 | `PIN10_IOL15A_LED1` 〜 | オンボード6個、Low=点灯 |
 | ボタン S1 | 3 | `PIN3_IOT2A_BUTTON_S1_1V8` | IO_TYPE=LVCMOS18（BANK3 / 1.8V） |
 | ボタン S2 | 4 | `PIN4_IOL5A_JTAG_SEL_S2_1V8` | IO_TYPE=LVCMOS18（JTAG_SEL 兼用） |
-| UART TX | 17 | `PIN17_IOB2A_FPGA_TX` | BL702 経由で USB シリアル |
-| UART RX | 18 | `PIN18_IOB2B_FPGA_RX` | BL702 経由で USB シリアル |
+| UART TX | 17 | `PIN17_IOB2A_FPGA_TX` | デバッガ経由で USB シリアル（FTDI FT2232 または BL702、rev依存） |
+| UART RX | 18 | `PIN18_IOB2B_FPGA_RX` | デバッガ経由で USB シリアル（FTDI FT2232 または BL702、rev依存） |
 
 > **NOTE**: 公式 Schematic 上の左下「LED x 7」セクションラベルと回路実体（LED 6個）に食い違いがあるが、
 > 回路を辿ると LED は **6個**（Schematic のラベル誤記の可能性が高い）。
@@ -175,6 +175,21 @@ gowin_pack --help
 2. インストーラを実行し、全てデフォルト設定で進める
 3. インストール完了後、**UCRT64** 環境（`MSYS2 UCRT64` のショートカット）を起動
 
+> **NOTE（シェル識別の罠）**: MSYS2 のショートカットは 5 つあり、`MSYS2 UCRT64` と `MSYS2 MSYS` は
+> **同じ濃い紫色のアイコンで紛らわしい**。**ファイル名末尾の "UCRT64"** を必ず確認すること。
+> 起動後はターミナル左上のプロンプトに以下のように表示される:
+>
+> - `[user@host UCRT64 ~]` ← **正解**（緑色で `UCRT64` と表示）
+> - `[user@host MSYS ~]` ← 誤起動（`pacman -S mingw-w64-ucrt-x86_64-...` でインストールしたコマンドの PATH が通らず `command not found` になる）
+>
+> | アイコン色 | シェル | 用途 |
+> |----------|--------|------|
+> | 赤 M | CLANG64 | Clang/LLVM ベース |
+> | 緑 M | MINGW32 | 32bit |
+> | 青 M | MINGW64 | GCC + msvcrt |
+> | 紫 M | MSYS | UNIX 互換（PATH 別） |
+> | 紫 M | **UCRT64** | GCC + UCRT（**本書で使用**） |
+
 #### 3.1.2 openFPGALoader のインストール
 
 UCRT64 ターミナルで以下を実行:
@@ -206,30 +221,130 @@ openFPGALoader が Tang Nano 9K と通信するために、JTAG インターフ�
 
 #### 3.2.1 手順
 
-1. [Zadig 公式サイト](https://zadig.akeo.ie/) から最新版をダウンロード
-2. Tang Nano 9K を USB で接続
-3. Zadig を起動
+1. [Zadig 公式サイト](https://zadig.akeo.ie/) から最新版をダウンロード（執筆時点では Zadig 2.9）
+   - ダウンロードした `.exe` を実行する際、SmartScreen が「認識されないアプリ」と警告するが、
+     発行元欄が `Akeo Consulting`（Zadig 作者 Pete Batard の会社）であれば正規署名済みで安全。「実行」で進む。
+2. Tang Nano 9K を USB で接続（Tang Nano 9K の電源 LED が点灯しているか先に確認）
+3. Zadig を起動（初回はオンライン更新確認のダイアログが出るが、`No` で十分）
 4. メニュー → **Options** → **List All Devices** にチェック
-5. ドロップダウンから **JTAG Debugger (Interface 0)** を選択
-6. ドライバを **WinUSB** に設定（矢印ボタンで選択）
+5. ドロップダウンから **`JTAG Debugger (Interface 0)`** を選択
+   - **USB ID 表示欄が `0403 6010 00` であることを必ず確認**（VID=FTDI、PID=FT2232、末尾 `00`=Interface 0）
+   - 別 rev で BL702 デバッガの場合は VID/PID が異なるため、ドロップダウンの表記名「JTAG Debugger (Interface 0)」と Interface 番号で識別する
+6. 中央の矢印ボタンで右側ドライバを **WinUSB** に設定
 7. **Replace Driver** をクリック
-8. 1〜2分待つ
+8. 「Installing Driver...」表示 → 通常 30秒〜2分、最大 5分待機
+9. 「The driver was installed successfully.」ダイアログで完了
 
-> **再確認**: ドロップダウンに「Interface 1」が見える場合があるが、**絶対に選択しない**。
-> Interface 1 = UART = TeraTerm で使うシリアルポート。
+> **再確認**: ドロップダウンには `USB Receiver (Interface 0)` 等の **Logicool 製マウス/キーボードのレシーバ**が
+> 紛れ込んで見えることがある。**`JTAG Debugger` と表記されている項目以外は絶対に選択しない**。
+> 入力デバイスを誤って WinUSB 化するとマウス/キーボードが反応しなくなる事故になる。
+
+#### 3.2.2 失敗時の復旧（Restore Original Driver）
+
+Zadig には書き換え前のドライバへ戻す機能がある。誤って違うデバイスを WinUSB 化した場合の保険として覚えておく。
+
+1. Zadig 画面の **Replace Driver / Reinstall Driver ボタンの右の `▼`** をクリック
+2. メニューから **`Restore Original Driver`** を選択
+3. ドロップダウンで対象デバイスを再選択 → Restore Original Driver 実行
+4. 元のドライバ（FTDIBUS や標準 HID 等）に自動復旧
+
+万一 Zadig で自力復旧できないケースの一般手順:
+
+- **デバイスマネージャ → 該当デバイス右クリック → デバイスのアンインストール**（「ドライバを削除」にチェック）
+  → 操作 → ハードウェア変更のスキャン で Windows 標準ドライバが自動再インストール
+- **Windows のシステム復元ポイント**: 不安なら Replace Driver 前に手動作成（スタート → 「復元ポイント」検索）
+
+#### 3.2.3 VCP（Virtual COM Port）有効化
+
+FTDI デバッガ搭載の Tang Nano 9K の場合、**Interface 1（UART）は WinUSB 化しないが、COM ポートとして昇格させるための追加設定**が必要なことがある。
+
+##### 症状
+- Zadig で Interface 0 を WinUSB 化完了
+- デバイスマネージャの「ユニバーサル シリアル バス コントローラー」配下に **`USB Serial Converter B`** が見える
+- ただし「ポート (COM と LPT)」セクションに **`USB Serial Port (COMn)` が出現しない**
+
+##### 原因
+FTDI のドライバには `D2XX`（FTDIBUS、低レベルアクセス用）と `VCP`（Virtual COM Port、仮想シリアル）の2層がある。
+`USB Serial Converter B` だけが見えて COM ポートが出ない場合、VCP レイヤーが無効化されている。
+
+##### 対処
+1. デバイスマネージャ → **`USB Serial Converter B`** を右クリック → **プロパティ**
+2. **「詳細設定」タブ**（Advanced）を開く
+3. **「VCP をロード」（Load VCP）** チェックボックスを **ON**
+4. OK で閉じる
+5. Tang Nano 9K の USB ケーブル抜き差し（or PC 再起動）
+6. デバイスマネージャに **「ポート (COM と LPT)」** セクションが新規出現
+7. 配下の **`USB Serial Port (COMn)`** の `n` の数字をメモ → TeraTerm で使用
+
+BL702 デバッガ搭載 rev では VCP 設定不要で COM ポートが直接出る場合もある。COM ポートが既に見えている場合はこのステップは不要。
 
 ### 3.3 TeraTerm のインストール
 
-UART 経由の通信確認に使用する。Tang Nano 9K はオンボードの BL702 デバッガを経由して USB シリアル通信が可能。
+UART 経由の通信確認に使用する。Tang Nano 9K はオンボードのデバッガ（FTDI FT2232 または BL702、ボード rev により異なる）を経由して USB シリアル通信が可能。
 
 1. [TeraTerm 公式](https://github.com/TeraTermProject/teraterm/releases) から最新版をダウンロード・インストール
 2. 接続設定:
-   - ポート: COM ポート（デバイスマネージャで確認）
+   - ポート: COM ポート（デバイスマネージャで確認、3.2.3 で確認した COMn）
    - ボーレート: **115200**
    - データビット: 8
    - パリティ: なし
    - ストップビット: 1
    - フロー制御: なし
+
+### 3.4 接続確認（Tang Nano 9K の生死確認）
+
+Lチカ実装に進む前に、**Tang Nano 9K と Win11 の疎通**をここで確認しておくと、後で問題の切り分けが楽になる。
+
+#### 3.4.1 Tang Nano 9K 接続時の動作確認
+
+Tang Nano 9K を USB で Win11 に接続した時点で、**工場出荷時 demo bitstream が動作する** はず。観察ポイント:
+
+- オンボードの LED 6個 のいずれかが点灯/点滅（最低限の生死確認）
+- 電源 LED の点灯（給電 OK）
+
+何も光らない場合の疑い:
+
+- USB ケーブルが充電専用（データ通信非対応）
+- USB ポート不良 / KVM スイッチ／USB ハブ経由の相性問題（[9. トラブルシューティング](#9-トラブルシューティング) 参照）
+- ボード初期不良
+
+#### 3.4.2 openFPGALoader で JTAG 疎通確認
+
+MSYS2 UCRT64 ターミナルで以下を実行:
+
+```bash
+openFPGALoader --detect
+```
+
+**期待される出力**:
+
+```
+empty
+No cable or board specified: using direct ft2232 interface
+Jtag frequency : requested 6.00MHz   -> real 6.00MHz
+index 0:
+        idcode 0x100481b
+        manufacturer Gowin
+        family GW1N
+        model  GW1N(R)-9C
+        irlength 8
+```
+
+冒頭の `empty` と `No cable or board specified` は **正常な情報メッセージ**（cable 名を `--cable ft2232` 等で明示しない場合の通知）。重要なのは下部の `manufacturer Gowin` / `family GW1N` / `model GW1N(R)-9C` が出ていること。
+これが出れば **JTAG 経路（Interface 0 / WinUSB）疎通 OK**。
+
+エラーが出る場合（`No cable found` 等）は [9. トラブルシューティング](#9-トラブルシューティング) を参照。
+
+#### 3.4.3 TeraTerm で UART 疎通確認
+
+3.3 の設定通り **COMn / 115200 / 8N1 / フロー制御なし** で TeraTerm を接続。
+
+- 接続成功 → 画面が無音でも OK（出荷時 demo が UART 出力を持っていなければ何も表示されない、それで正常）
+- 文字化け → ボーレート不一致を疑う（再確認）
+
+接続が完了すれば **UART 経路（Interface 1 / VCP）疎通 OK**。
+
+これで Win11 側の関門 3 つ（USB 認識・JTAG 接続・UART 接続）すべてクリア。Lチカ実装に進める状態。
 
 ---
 
@@ -644,7 +759,9 @@ TM1638 の Verilog ドライバ実装は以下のリポジトリが参考にな�
 
 ## 9. トラブルシューティング
 
-### yosys で `synth_gowin` が見つからない
+### VPS 側
+
+#### yosys で `synth_gowin` が見つからない
 
 OSS CAD Suite の environment を source していない可能性がある。
 
@@ -652,27 +769,77 @@ OSS CAD Suite の environment を source していない可能性がある。
 source ~/oss-cad-suite/environment
 ```
 
-### nextpnr で `ERROR: Unconstrained IO` が出る
+#### nextpnr で `ERROR: Unconstrained IO` が出る
 
 トップモジュールの全てのポートに対して `.cst` ファイルでピン割り当てが必要。
 未使用ポートがある場合は RTL 側から削除するか、制約ファイルに追記する。
 
-### openFPGALoader で `No cable found` が出る
+### Win11 側 — USB 認識まわり
+
+#### Tang Nano 9K が「不明な USB デバイス（アドレスの設定の失敗）」になる
+
+LED は光って給電されているのに、デバイスマネージャで認識失敗するケース。
+USB 初期化の「アドレス設定」フェーズで失敗している状態。
+
+**主な原因と対処**:
+
+1. **USB ケーブルの相性問題**
+   - 充電専用ケーブル → データ通信対応のものに交換
+   - **USB-C アクティブケーブル**（Power Delivery 対応・代替モード対応の高機能ケーブル、ハードウェアウォレット用等）は Tang Nano 9K の単純な USB 2.0 デバイス相手だと **「USB 2.0 BILLBOARD」だけ現れて本体認識に失敗** することがある
+   - 解決策: **シンプルな USB-A → USB-C ケーブル**（スマホ充電用、Tang Nano 9K 同梱品、100均ケーブル等）を試す
+
+2. **KVM スイッチ / USB ハブ経由の問題**
+   - 直接接続で動くか確認 → 動いたらハブ側の問題
+   - USB ハブの給電不足の可能性（セルフパワー型に変更 or 給電ハブを使う）
+
+3. **USB ポート相性**
+   - USB 3.0 ポート → USB 2.0 ポートに変える（あれば）
+   - 別ポートで試す
+
+`USB 2.0 BILLBOARD` が見えている場合は、ケーブルが過剰仕様の可能性が高い。
+
+#### MSYS2 で `command not found` が出る（誤シェル起動）
+
+シェル選択ミスの可能性。プロンプト左の表記を確認:
+
+- `[user@host UCRT64 ~]` ← 正解
+- `[user@host MSYS ~]` ← 誤起動。`MSYS2 UCRT64` ショートカット（紫アイコンの下側）を起動し直す
+
+UCRT64 と MSYS は **同じ濃い紫アイコン**で見分けにくい。ショートカット名末尾の「UCRT64」を確認。
+
+#### openFPGALoader で `No cable found` が出る
 
 1. Zadig で Interface 0 を WinUSB に変更したか確認
 2. USB ケーブルがデータ通信対応か確認（充電専用ケーブルでは認識しない）
-3. MSYS2 UCRT64 ターミナルから実行しているか確認（通常の cmd.exe では PATH が通っていない）
+3. MSYS2 UCRT64 ターミナルから実行しているか確認（cmd.exe や MSYS シェルでは PATH が通っていない）
 
-### TeraTerm でシリアルポートが見つからない
+#### COM ポートがデバイスマネージャに出現しない
+
+`USB Serial Converter B` は見えるが「ポート (COM と LPT)」セクションが無い場合、
+FTDI の VCP（Virtual COM Port）レイヤーが無効化されている。
+
+→ [3.2.3 VCP（Virtual COM Port）有効化](#323-vcpvirtual-com-port有効化) を参照。
+
+#### TeraTerm でシリアルポートが見つからない
 
 Zadig で **Interface 1 を変更してしまった** 可能性がある。
 デバイスマネージャで「ユニバーサル シリアル バス デバイス」→ 該当デバイスを右クリック → ドライバの更新 → 「コンピューターを参照してドライバーを検索」→ 「コンピューター上の利用可能なドライバーの一覧から選択」→ USB シリアルデバイス を選択して復旧する。
 
-### LED が全く光らない
+または Zadig 画面で **Replace Driver の `▼` → Restore Original Driver** で書き換え前のドライバに戻せる。
+
+### ハードウェア側
+
+#### LED が全く光らない（Lチカ書き込み後）
 
 1. Tang Nano 9K の LED は **active low**（Low 出力で点灯）。初期値が全 High だと消灯状態
 2. ビットストリーム(.fs)の書き込みが正常に完了したか確認
 3. 制約ファイルのピン番号が正しいか確認
+
+#### 接続直後に LED が全く光らない（出荷時 demo すら動かない）
+
+1. USB 給電不足（ハブ経由なら直接接続を試す）
+2. 「不明な USB デバイス」になっていないか確認 → 上記のケーブル相性問題を参照
+3. ボード初期不良（別 PC で試して切り分け）
 
 ---
 
