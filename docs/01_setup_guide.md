@@ -398,18 +398,36 @@ VPS に VSCode Remote SSH で接続して開発する。以下の拡張をイン
 
 | 拡張名 | 用途 |
 |--------|------|
-| **WaveTrace** | .vcd 波形ファイルの可視化。シミュレーション結果を視覚的に確認 |
+| **VaporView** | .vcd / .fst / .ghw 波形ファイルの可視化。シミュレーション結果を視覚的に確認 |
 | **SystemVerilog - Language Support** | Verilog/SystemVerilog のシンタックスハイライト・補完 |
 
-### インストール手順
+> **NOTE（VaporView 採用理由）**: 当初は WaveTrace を採用していたが、以下の理由で VaporView に切り替えた:
+>
+> 1. WaveTrace は信号値表示の文字が信号行の高さに対して上部見切れる問題があり、行高調整の設定が公式に存在しない
+> 2. WaveTrace 公式サイト（wavetrace.io）は 2026年5月時点で 404 で、メンテナンス停滞の兆候
+> 3. VaporView は **AGPL-3.0 OSS**、活発に更新（v1.5.2 / 2026年4月、631 commits）、行高調整・多彩な数値フォーマット・主副マーカー・FST/GHW 対応など機能豊富
+>
+> Phase 5 MMU 規模で VCD が肥大化した場合は FST 形式（バイナリ圧縮）に切り替え可能で、長期的にも VaporView が有利。
 
-1. VSCode の拡張機能パネル（Ctrl+Shift+X）を開く
-2. 「WaveTrace」で検索 → インストール
-3. 「SystemVerilog Language Support」で検索 → インストール
+### 4.1 インストール手順
 
-### WaveTrace の使い方
+1. **VSCode を VPS に Remote SSH 接続した状態** で拡張機能パネル（`Ctrl+Shift+X`）を開く
+2. 検索バーで `VaporView` を検索（拡張ID: `lramseyer.vaporview`）
+3. 拡張機能ページ右上の「**Install in SSH: <ホスト名>**」ボタンをクリック（**ローカル側ではなくリモート側**にインストール）
+4. 同様に `SystemVerilog Language Support` をリモート側にインストール
 
-シミュレーション後に生成される `.vcd` ファイルをエクスプローラからクリックすると波形ビューアが開く。
+> **Remote SSH の罠**: VSCode 拡張は **ローカル / リモート別管理**。Remote SSH 接続中の拡張パネルには「Local」「SSH: <ホスト>」のセクションが分かれて表示される。
+> `.vcd` は VPS 側に生成されるため、リモート側に VaporView をインストール必須。ローカル側だけでは `.vcd` を開けない。
+>
+> 必要要件: **VSCode 1.102.0 以上**。
+
+### 4.2 動作確認
+
+VSCode のエクスプローラから `00_counter/build/dump.vcd` をクリックして波形ビューアが開けば動作確認 OK。
+
+NETLIST ペインに `led_tb / uut` のスコープ階層が表示されること、信号を選んで波形ペインに追加できることを確認。
+
+> **詳細な操作方法**: VaporView の各種操作（信号追加・行高調整・数値フォーマット・マーカー・ズーム・WaveDrom コピー等）と Phase 1 RV32I 波形デバッグでの実践パターンは [02_vaporview_guide.md](02_vaporview_guide.md) を参照。
 
 ---
 

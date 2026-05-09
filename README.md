@@ -118,6 +118,8 @@ fpga_cpu_tang/
 | ファイル | 内容 |
 |---------|------|
 | [docs/01_setup_guide.md](docs/01_setup_guide.md) | 開発環境構築手順（VPS 側ツール・Win11 側ツール・Tang Nano 9K ピンマップ・LED Lチカ動作確認） |
+| [docs/02_vaporview_guide.md](docs/02_vaporview_guide.md) | VaporView 波形ビューア操作ガイド（基本操作・ナビゲーション・Phase 1 RV32I 波形デバッグ実践パターン・トラブルシューティング） |
+| [docs/99_glossary.md](docs/99_glossary.md) | 用語集（FPGA・RISC-V・周辺ツール用語の解説） |
 
 Phase 進行に応じて `docs/` 配下にアーキテクチャ設計書・命令デコーダ仕様書・MMU 設計書などを順次追加予定。
 
