@@ -1,0 +1,9 @@
+# ビルド成果物（FPGA合成・シミュレーション）
+**/build/
+
+# Python
+.venv/
+__pycache__/
+
+# OS
+.DS_Store

@@ -72,7 +72,7 @@ VPS（Ubuntu 22.04）と Win11 の **2 層構成**:
 │  VPS (Ubuntu 22.04)                                  │
 │  - Icarus Verilog（シミュレーション）                │
 │  - OSS CAD Suite（yosys → nextpnr → gowin_pack）     │
-│  - VSCode WaveTrace で .vcd 波形確認                 │
+│  - VSCode VaporView で .vcd 波形確認                 │
 └────────────┬─────────────────────────────────────────┘
              │ Syncthing（.fs ビットストリーム自動同期）
              ▼

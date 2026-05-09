@@ -31,7 +31,7 @@ VPS（Ubuntu 22.04）上でシミュレーション・合成を行い、Win11 �
 │  └────────┬────────┘   └────────────┬─────────────┘  │
 │           │ dump.vcd                │ pack.fs         │
 │           ▼                         │                 │
-│  VSCode WaveTrace                   │ Syncthing       │
+│  VSCode VaporView                   │ Syncthing       │
 │  (波形確認)                         ▼                 │
 ├─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
 │  Win11                                               │
@@ -108,18 +108,23 @@ Gowin EDA ではなく OSS CAD Suite を採用する理由: ライセンス申�
 最新リリースを [GitHub Releases](https://github.com/YosysHQ/oss-cad-suite-build/releases) から取得する。
 ファイル名パターン: `oss-cad-suite-linux-x64-YYYYMMDD.tgz`
 
-リリースは ほぼ nightly で更新されるため、日付決め打ちではなく最新タグを取得して落とす:
+リリースは ほぼ nightly で更新されるため、日付決め打ちではなく最新タグを取得して落とす。
+ダウンロード先は `~/tmp/` 等の作業ディレクトリ推奨（ホーム直下を散らかさない）:
 
 ```bash
-# 最新リリースのタグ名を取得（例: "2026-04-07"）
+mkdir -p ~/tmp && cd ~/tmp
+
+# 最新リリースのタグ名を取得（例: "2026-05-09"）
 LATEST=$(curl -s https://api.github.com/repos/YosysHQ/oss-cad-suite-build/releases/latest \
   | grep -oP '"tag_name":\s*"\K[^"]+')
-# ファイル名側のフォーマット（例: "20260407"）
+# ファイル名側のフォーマット（例: "20260509"）
 DATE_PACKED=$(echo "$LATEST" | tr -d '-')
 echo "Downloading oss-cad-suite ${LATEST}"
 
 wget "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${LATEST}/oss-cad-suite-linux-x64-${DATE_PACKED}.tgz"
 ```
+
+サイズは ~680MB、回線次第で 1〜3 分。
 
 > **NOTE**: 自動取得スクリプトが何らかの理由で動かない場合は、ブラウザで
 > https://github.com/YosysHQ/oss-cad-suite-build/releases/latest を開いて手動でDLすること。
@@ -131,19 +136,30 @@ wget "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/${LATEST}
 tar xzf oss-cad-suite-linux-x64-${DATE_PACKED}.tgz -C ~/
 ```
 
-`~/oss-cad-suite/` 配下にツール群が展開される。
+`-C ~/` で展開先をホームに固定するため、cwd が `~/tmp/` でも `~/oss-cad-suite/` 配下にツール群が展開される。展開後 ~2GB に膨らむため、ディスク残量に注意。
+
+展開完了後、元の `.tgz`（679MB）は不要になるため削除可:
+
+```bash
+rm ~/tmp/oss-cad-suite-linux-x64-${DATE_PACKED}.tgz
+```
 
 #### 2.2.3 環境変数の設定
+
+OSS CAD Suite は `environment` スクリプトを source することで yosys / nextpnr-himbaechel / gowin_pack を PATH に通す。動作確認のため、まず手動で source する:
 
 ```bash
 source ~/oss-cad-suite/environment
 ```
 
-毎回 source するのが面倒な場合は `.bashrc` に追記する:
-
-```bash
-echo 'source ~/oss-cad-suite/environment' >> ~/.bashrc
-```
+> **重要**: `.bashrc` に `source ~/oss-cad-suite/environment` を追記することは **推奨しない**。理由:
+>
+> 1. 全シェル起動時にプロンプトに `⦗OSS CAD Suite⦘` プレフィックスが付き、常時表示される
+> 2. PATH が常時上書きされ、普段使いのシェルが OSS CAD Suite 環境に汚染される
+> 3. システム標準 Python と OSS CAD Suite 同梱 Python（3.11）の取り違え事故リスク
+>
+> 本書では **Makefile 内で必要時のみ一時 source する方式** を採用する（[6.4 Makefile](#64-makefile) 参照）。
+> 2.2.4 / 2.2.5 の動作確認・依存追加は手動 source した状態で実施し、確認後 `exec bash` で抜けるか SSH を切断・再接続して、PATH をクリーンに戻す運用とする。
 
 #### 2.2.4 動作確認
 
@@ -160,6 +176,34 @@ gowin_pack --help
 ```
 
 それぞれバージョンやヘルプが表示されれば OK。
+
+#### 2.2.5 apycula 依存ライブラリの追加（推奨）
+
+`gowin_pack --help` 実行時に以下の警告が出る場合がある:
+
+```
+UserWarning: Numpy is not available, performance will be degraded.
+UserWarning: Msgspec is not available, performance will be degraded.
+```
+
+これは apycula（gowin_pack の本体）が依存する Python パッケージ（numpy / msgspec / fastcrc）が OSS CAD Suite 同梱 Python に未インストールのため発生する。**警告のままでも動作する**が、合成パフォーマンスが低下するため、Phase 5 MMU 規模以降を見越して事前にインストールしておくと良い。
+
+```bash
+# OSS CAD Suite を一時 source した状態で（2.2.3 で source 済の前提）
+python3 -m pip install numpy msgspec fastcrc
+
+# pip 自体も古い場合（23.x → 26.x）アップグレードしておくと、egg DEPRECATION 警告も消える
+python3 -m pip install --upgrade pip
+```
+
+`fastcrc` は apycula が `requires fastcrc, which is not installed` の依存解決エラーを出すため事前に追加する。
+
+> **NOTE**: ここでのインストール先は `~/oss-cad-suite/lib/python3.11/site-packages/` で、OSS CAD Suite 同梱 Python 専用領域。
+> プロジェクト側 `.venv` には入らない（gowin_pack はそちらを読みに行かないため、入れても意味がない）。
+>
+> インストール後、再度 `gowin_pack --help` を実行して警告が出ないことを確認する。
+>
+> OSS CAD Suite 自体を再展開した場合これらのパッケージは消えるため、再インストールが必要。上記スニペットを再現用として残しておくこと。
 
 ---
 
@@ -545,6 +589,9 @@ IO_LOC  "led[5]" 16;
 # Tang Nano 9K — LED Lチカ
 # デバイス: GW1NR-LV9QN88PC6/I5 / family: GW1N-9C
 
+SHELL    := /bin/bash
+OSS_ENV  := source $(HOME)/oss-cad-suite/environment
+
 DEVICE   = GW1NR-LV9QN88PC6/I5
 FAMILY   = GW1N-9C
 TOP      = led
@@ -553,26 +600,26 @@ TB       = tb/led_tb.v
 CST      = constraints/tangnano9k.cst
 BUILD    = build
 
-# ─── シミュレーション ───
+# ─── シミュレーション（iverilog は apt 版、source 不要） ───
 .PHONY: sim
 sim:
 	mkdir -p $(BUILD)
 	iverilog -o $(BUILD)/sim.out $(TB) $(SRC)
 	cd $(BUILD) && vvp sim.out
 	@echo "波形ファイル: $(BUILD)/dump.vcd"
-	@echo "VSCode WaveTrace で開いて確認すること"
+	@echo "VSCode VaporView で開いて確認すること"
 
-# ─── 合成 → 配置配線 → ビットストリーム生成 ───
+# ─── 合成 → 配置配線 → ビットストリーム生成（OSS CAD Suite 一時起動） ───
 .PHONY: synth
 synth:
 	mkdir -p $(BUILD)
-	yosys -p "read_verilog $(SRC); synth_gowin -top $(TOP) -json $(BUILD)/$(TOP).json"
-	nextpnr-himbaechel --json $(BUILD)/$(TOP).json \
+	$(OSS_ENV) && yosys -p "read_verilog $(SRC); synth_gowin -top $(TOP) -json $(BUILD)/$(TOP).json"
+	$(OSS_ENV) && nextpnr-himbaechel --json $(BUILD)/$(TOP).json \
 		--write $(BUILD)/$(TOP)_pnr.json \
 		--device $(DEVICE) \
 		--vopt family=$(FAMILY) \
 		--vopt cst=$(CST)
-	gowin_pack -d $(FAMILY) -o $(BUILD)/$(TOP).fs $(BUILD)/$(TOP)_pnr.json
+	$(OSS_ENV) && gowin_pack -d $(FAMILY) -o $(BUILD)/$(TOP).fs $(BUILD)/$(TOP)_pnr.json
 	@echo "ビットストリーム生成完了: $(BUILD)/$(TOP).fs"
 	@echo "Win11 に転送して openFPGALoader で焼き込むこと"
 
@@ -587,6 +634,14 @@ help:
 	@echo "make synth — yosys + nextpnr + gowin_pack で .fs 生成"
 	@echo "make clean — ビルド成果物を削除"
 ```
+
+> **設計意図（OSS CAD Suite を Makefile 内で一時起動する理由）**:
+>
+> OSS CAD Suite の `environment` を `.bashrc` に常駐 source すると、全シェル起動時にプロンプトに `⦗OSS CAD Suite⦘` プレフィックスが付き、PATH も常時上書きされる。普段使いのシェルが汚染されるのを避けるため、本書では **`.bashrc` には source を書かず、`make synth` ターゲット内でのみ一時的に source する方式** を採用する。
+>
+> - `sim:` ターゲットは apt 版 iverilog（標準PATH）を使うため source 不要
+> - `synth:` ターゲットは yosys / nextpnr-himbaechel / gowin_pack を使うため、各コマンド前に `$(OSS_ENV) && ` を付けて一時起動
+> - `Makefile` 経由のため、サブシェル内に閉じた起動になり、親シェルの環境は汚染されない
 
 > **NOTE（要実機検証）**: nextpnr-himbaechel の引数仕様について
 >
