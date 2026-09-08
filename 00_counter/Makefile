@@ -1,5 +1,6 @@
 # Tang Nano 9K — LED Lチカ
 # デバイス: GW1NR-LV9QN88PC6/I5 / family: GW1N-9C
+# 実機 idcode 0x0100481b で確定（openFPGALoader --detect で検証済）
 
 SHELL    := /bin/bash
 OSS_ENV  := source $(HOME)/oss-cad-suite/environment

@@ -360,26 +360,71 @@ WaveTrace / GTKWave で可視化。
 
 ## 10. ボード固有（Tang Nano 9K / Arty A7）
 
+### 各社の役割整理（Tang Nano 9K の場合）
+
+```
+[Gowin] ──製造──> GW1NR-9C (FPGAチップ単体)
+                       │
+                       ↓ Sipeed が購入して基板に搭載
+[Sipeed] ──設計/製造──> Tang Nano 9K (基板/ボード)
+```
+
+| 会社 | 国 | 役割 | アナロジー |
+|---|---|---|---|
+| **Gowin Semiconductor**（高雲半导体） | 中国・広州 | FPGA チップ単体を製造する半導体メーカー | Intel（CPU IC メーカー） |
+| **Sipeed** | 中国・深圳 | Gowin の FPGA を購入して評価ボードに仕立てて販売 | Lenovo（PC 全体メーカー） |
+| **Bouffalo Lab** | 中国 | BL702 SoC（USB-JTAG ブリッジ）を製造 | 第三者 IC サプライヤ |
+| **Puya Semiconductor** | 中国 | P25Q32U（外部 SPI Flash）を製造 | 第三者 IC サプライヤ |
+
+トラブル時の責任分界に効く：bitstream 仕様＝Gowin、回路設計＝Sipeed、JTAG 周り＝Bouffalo Lab。
+
+FPGA 業界の類似構造：
+
+| FPGA メーカー | ボードメーカー | 製品例 |
+|---|---|---|
+| **Gowin** | Sipeed | Tang Nano 9K |
+| AMD/Xilinx | Digilent | Arty A7 |
+| Intel/Altera | Terasic | DE10-Nano |
+| Lattice | Olimex | iCEStick |
+
 ### Arty A7-100T
-Digilent 製の Xilinx Artix-7 評価ボード。本プロジェクトの Phase 4-8 で使用予定。
+**Digilent** 製の **AMD/Xilinx Artix-7** 評価ボード。本プロジェクトの Phase 4-8 で使用予定。
 - FPGA: XC7A100T（101,440 LUT）
 - DDR3 256MB
 - 用途: RV64 + MMU + Linux ブート
 
 ### BL702
-Tang Nano 9K に搭載される Bouffalo Lab 製の SoC（RISC-V ベース）。
+Tang Nano 9K に搭載される **Bouffalo Lab** 製の SoC（RISC-V ベース MCU）。
 役割: USB-JTAG / USB-UART 変換。書き込みも UART デバッグもこの 1 チップ経由。
 
-### Gowin GW1NR-9
-Tang Nano 9K のメイン FPGA。
+⚠️ **注意**: BL702 は FTDI FT2232D を**ファームウェアでエミュレート**しているだけで、本物の FTDI ではない。Win11 デバマネで `USB Serial Converter A/B` 表示されるが擬装。FTDI 公式ツール（Gowin Programmer 等）と細かい挙動が完全互換でない場合あり。詳細は [01_setup_guide.md §9 Win11 側 — 焼き込みまわり](01_setup_guide.md) 参照。
+
+### Gowin（会社）
+中国・広州拠点の FPGA 専業メーカー。2014 年設立の比較的新興企業。教育・組込み・産業用途で価格競争力あり。
+- 主要製品: LittleBee 系列（GW1N シリーズ）、Arora 系列（GW2A シリーズ）、Aurora 系列（GW5A）
+- Tang Nano 9K に載っているのは LittleBee 系列の **GW1NR-9C**
+- 公式 EDA: **Gowin EDA**（GUI 付き、Education Edition は無料）
+- オープンソース対応: **Project Apicula** が bitstream 形式をリバースエンジニアリングしており、yosys + nextpnr-himbaechel + gowin_pack で公式 EDA 不要のフローが構築可能
+
+### Gowin GW1NR-9C
+Tang Nano 9K のメイン FPGA（型番 `GW1NR-LV9QN88PC6/I5`）。
 - 8,640 LUT4
 - 6,480 FF
 - 17 KB BRAM
 - 2 PLL
-- 64Mbit SDRAM 内蔵パッケージ（GW1NR は SDRAM 統合版）
+- 64Mbit SDRAM 内蔵パッケージ（GW1N**R** の "R" は SDRAM 統合版を示す）
+- "**C**" はリビジョン C（プロセスシュリンク版）
+
+⚠️ **注意**: apicula は GW1N-9C のみサポートし、GW1N**R**-9C 用 bitstream は生成できない（apicula Issue #206）。bitstream 互換性は基本ありで、SDRAM を使わない限り Lチカ等は動作する。Gowin Programmer の id-code 厳密チェックでは弾かれる。
+
+### Sipeed
+中国・深圳拠点のハードウェア（基板）メーカー。Maker / 教育向けに多様な開発ボードを販売。
+- FPGA ボード: **Tang シリーズ**（Tang Nano 1K/4K/9K/20K, Tang Primer 20K/25K, Tang Mega 等、すべて Gowin FPGA 採用）
+- RISC-V ボード: Lichee 系
+- AI ボード: MaixPy 系
 
 ### Sipeed Tang Nano 9K
-Sipeed 製の小型 FPGA 評価ボード。Gowin GW1NR-9 搭載、USB-C 給電・BL702 デバッガ統合。
+Sipeed 製の小型 FPGA 評価ボード。**Gowin GW1NR-9C** 搭載、USB-C 給電・**BL702** デバッガ統合・**Puya P25Q32U**（4MB 外部 SPI Flash）搭載。
 本プロジェクトの Phase 1-3 で使用。
 
 ---

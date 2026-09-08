@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:wiki.sipeed.com)",
+      "WebFetch(domain:trabucayre.github.io)",
+      "WebFetch(domain:cdn.gowinsemi.com.cn)",
+      "WebFetch(domain:learn.lushaylabs.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.eevblog.com)",
+      "WebFetch(domain:hackaday.io)",
+      "WebFetch(domain:spotpear.com)",
+      "Bash(make -C /home/natosepia/project/fpga_cpu_tang/00_counter sim)",
+      "Bash(make -C /home/natosepia/project/fpga_cpu_tang/00_counter synth)",
+      "mcp__claude_ai_lisanima__topic_manage"
+    ]
+  }
+}

@@ -900,6 +900,148 @@ Zadig で **Interface 1 を変更してしまった** 可能性がある。
 
 または Zadig 画面で **Replace Driver の `▼` → Restore Original Driver** で書き換え前のドライバに戻せる。
 
+### Win11 側 — 焼き込みまわり
+
+#### Tang Nano 9K の JTAG アダプタの正体（BL702 vs FTDI）
+
+物理チップは **BL702（Bouffalo Lab RISC-V MCU）**。FT2232D を **ファームウェアでエミュレート** しているだけで、本物の FTDI ではない。
+
+- Win11 デバマネで `USB Serial Converter A/B` 表示は BL702 の擬装によるもの
+- ftd2xx 系ツール（Gowin Programmer など）と細かい挙動が完全互換ではない
+- Sipeed 公式 Wiki でも「IDE 同梱の Programmer は Tang Nano に合わない、推奨版に差し替えろ」と明記
+
+→ **openFPGALoader（libusb / WinUSB 経由）に一本化が正解**。
+
+#### apicula の GW1NR 非対応
+
+apicula（gowin_pack）は **GW1N-9C のみサポート、GW1NR-9C 用 idcode を生成不可**（[apicula Issue #206](https://github.com/YosysHQ/apicula/issues/206)）。
+
+| 項目 | 値 |
+|---|---|
+| apicula 出力の bitstream 埋め込み idcode | `0x1100481B`（GW1N-9C用） |
+| Tang Nano 9K 実機 idcode | `0x0100481B`（bit28 違い） |
+| openFPGALoader 判定 | 通る（下位16bitで識別） |
+| Gowin Programmer 判定 | 弾く（厳密 id-code チェック） |
+
+Lチカ程度なら GW1NR-9C と GW1N-9C は内部論理がほぼ同一なので **動作はする**（実証済み）。SDRAM 機能を使わなければ問題なし。
+
+#### Gowin Programmer の `VLD Down` エラー（Tang Nano 9K では構造的に不適合）
+
+Tang Nano 9K で Gowin Programmer を使うと `Error: VLD Down!` で全 Operation が失敗する：
+
+- 原因: BL702 のFTDIエミュレーション層と Gowin の ftd2xx 経路の細かい挙動差
+- Frequency 変更しても Operation 変更しても VLD Down 継続
+- `exFlash Bulk Erase in bscan` も `thru GAO-Bridge` も同様に失敗
+
+**対処:** Gowin Programmer を使わない。Sipeed 配布の推奨 Programmer に差し替えるか、openFPGALoader 一本化。
+
+#### openFPGALoader Flash 焼きで `CRC check : FAIL` が出る
+
+openFPGALoader v1.0.0（MSYS2 同梱版）の既知問題（[openFPGALoader Issue #251](https://github.com/trabucayre/openFPGALoader/issues/251), [#259](https://github.com/trabucayre/openFPGALoader/issues/259), [apicula Issue #262](https://github.com/YosysHQ/apicula/issues/262)）。
+
+**Read 値で実害判定:**
+
+| Read 値 | 判定 | 解釈 |
+|---|---|---|
+| `0x0000xxxx` (bitstream CRC近傍) | 偽陽性 | 焼けてる可能性あり、抜き差し後Lチカ動けばOK |
+| `0x80fa00fa` (完全に化けた値) | **実害あり** | JTAG 読み戻し失敗、Flash 内容が壊れている |
+| `0x00000000` (全0) | **実害あり** | 書込パスの問題、書き込み自体が成立してない |
+
+**対処（v1.0.0 で詰む場合）:**
+- 周波数下限に注意（`--freq` を 1.3MHz 未満にしない）
+- v1.1.1 へアップグレード（OSS CAD Suite Windows版に同梱）
+- v1.0.0 では `--bulk-erase` `--unprotect-flash` が Tang Nano 9K で `not supported`
+
+⚠️ **2026-05-10 追検証結果**: openFPGALoader v1.1.1 へアップグレード後も CRC FAIL は再現（`Read: 0x00010000` パターン）。v1.1.0 changelog の「Gowin: 9K 用 CRC delay 増加」「未文書化シーケンス追加」修正でも解決せず。
+
+⚠️ **2026-05-10 最終切り分け結果**: Gowin EDA Education V1.9.11.03 で同じ Verilog から正規 GW1NR-9C 用 bitstream を生成して焼いても、**完全に同じ CRC FAIL 症状**（`Read: 0x00000000`）が再現。これにより以下が確定：
+
+- **apicula 起因ではない**（bitstream を変えても同じ症状）
+- **openFPGALoader バージョン起因ではない**（v1.0.0 / v1.1.1 両方で同じ）
+- **USB 通信品質問題でもない**（PC直挿しで pollFlag 化け値消滅、最終試行は化け値ゼロでも CRC FAIL）
+- 残る原因は **物理層**（BL702 エミュレーション / Puya P25Q32U とのSPI配線 / USB信号品質）
+
+**Status Register 比較で最終確証:**
+
+| タイミング | Status Reg | フラグ |
+|---|---|---|
+| SRAM焼き Write後 | `0001e020` | **Done Final, Security Final**（正常起動） |
+| Flash焼き Write後 | `00018020` | Done Final/Security Final **無し**（リロード未完了） |
+
+**ベンダー公式の見解**: GowinSemi 公式サポートが「**Tang Nano 9K の eFlash プログラミングには BL702 を除去して外部 JTAG を接続するのが推奨**」と回答（Hackaday.io / svofski 氏記事より）。**ベンダー自身が9K Flash焼きを保証外と認めている**。
+
+**apicula 共同開発者 yrabbit 証言**: 「4枚の Tang Nano 9K すべて USB コネクタの半田不良（外見正常・実際フリー）。優しく扱い、息も吹きかけない方がいい」（apicula Issue #262）。
+
+→ **Phase 1 では SRAM 焼き運用で確定**（Phase 3 で USB絶縁器 ADuM3160 / 別ボード移行検討、Issue #1, #4 参照）。
+
+#### SRAM 焼きで `CRC check: Success` が出るのに L チカ動かない
+
+**原因仮説**: External Flash 内のゴミデータで FPGA 起動時にハング。Flash 焼き失敗を繰り返した直後に発生しやすい。
+
+Tang Nano 9K は電源投入時に external SPI Flash (Puya P25Q32U) から bitstream を自動ロードする。ここに半端なデータが残っていると、FPGA が「有効っぽいが壊れてる」ヘッダを読みに行ってフリーズ → SRAM 焼きしても出力が正しく駆動されない。
+
+**対処（Flash を 0xFF で埋めて消去状態にする）:**
+
+```bash
+# 4MB の 0xFF blob を生成
+python -c "open('blank.bin','wb').write(b'\xFF'*4194304)"
+
+# Flash に焼く（実質的な消去）
+openFPGALoader -b tangnano9k -f --external-flash blank.bin
+```
+
+`--external-flash` を**必ず付ける**（Tang Nano 9K の bitstream Flash は外部 Puya P25Q32U で確定）。`Erasing 100%` まで完走すれば消去成功（Writing は途中 Ctrl+C で止めても問題なし）。
+
+#### idcode が変化する／化ける（bit12 フリップ現象）
+
+**現象**: 通常 `0x0100481B` の idcode が `0x0100581B`（bit12=1）に化け、3回連続 `--detect` でも安定して別の値を返す。
+
+**原因仮説**（[ありす分析](https://github.com/YosysHQ/apicula/issues/262) と整合）: Flash erase 中断で IDCODE 管理セルの閾値が中途半端化（読み出し閾値ギリギリの状態）。
+
+**復旧手順（実証済み）:**
+
+1. USB ケーブル抜く
+2. ボード電源 LED 消灯確認
+3. **5 分以上放置**（残留電荷と Flash セルの閾値再安定化を待つ）
+4. USB 再接続
+5. `openFPGALoader --detect -b tangnano9k` を 3 回連続実行
+6. 3 回とも `idcode 0x100481b` に戻れば復活
+
+**5 分放置で Flash セル閾値が再安定化、idcode 復活する**事例あり。idcode 安定値を返している間は TAP 健全 = 物理破損ではない。
+
+**追加観察（2026-05-10）**: idcode 化けの直接トリガは **「SRAM 焼きの `CRC check : FAIL`」** が有力。Flash erase 中断だけでなく、SRAM bridge bitstream の中途半端ロードでも FPGA 内部状態が汚染され、IDCODE 読み取りまで影響する模様。SRAM 焼きで FAIL が出た直後に `--detect` すると idcode 化けを観測しやすい。
+
+#### ドライバ運用（Zadig WinUSB / FTDIBUS の使い分け）
+
+| ツール | 必要ドライバ | 用途 |
+|---|---|---|
+| openFPGALoader | **WinUSB** | SRAM/Flash 焼き、推奨 |
+| Gowin Programmer | **FTDIBUS** (FTDI 公式 ftd2xx) | ただし Tang Nano 9K では不適合 |
+
+**両立不可**: 同じ USB I/F に WinUSB と ftd2xx は同時バインドできない（Windows ドライバスタック仕様）。
+
+**Tang Nano 9K の正解:** WinUSB + openFPGALoader 一本化。Gowin Programmer ルートは VLD Down で詰むので、保険として Sipeed 配布の推奨 Programmer を入手しておく程度に留める。
+
+**Interface 1 (UART) は絶対触らない**（[3.2.4 Zadig 操作](#324-zadig-操作) 既出）。
+
+#### 開発フェーズ中の推奨運用（Phase 1〜2 段階）
+
+Phase 1 〜 2 では **SRAM 焼き運用** に統一する。
+
+```bash
+# 焼き込み: -f なしで SRAM 焼き
+openFPGALoader -b tangnano9k led.fs
+```
+
+| 項目 | SRAM 焼き | Flash 焼き |
+|---|---|---|
+| 速度 | 高速（数秒） | 遅い（数十秒〜分） |
+| 永続性 | 電源 OFF で消える | 永続 |
+| 開発サイクル | 適合 | 過剰 |
+| 現状の安定性 | 安定 | CRC FAIL 多発 |
+
+**Flash 永続化は Phase 3（完成・実機展示フェーズ）で本気で対処**。Issue 起票済み（リポジトリ Issues 参照）。
+
 ### ハードウェア側
 
 #### LED が全く光らない（Lチカ書き込み後）
@@ -907,6 +1049,7 @@ Zadig で **Interface 1 を変更してしまった** 可能性がある。
 1. Tang Nano 9K の LED は **active low**（Low 出力で点灯）。初期値が全 High だと消灯状態
 2. ビットストリーム(.fs)の書き込みが正常に完了したか確認
 3. 制約ファイルのピン番号が正しいか確認
+4. **Flash 内ゴミデータによる起動ハング**の可能性 → 上記「SRAM 焼きで CRC Success が出るのに L チカ動かない」項目を参照
 
 #### 接続直後に LED が全く光らない（出荷時 demo すら動かない）
 
@@ -938,3 +1081,12 @@ Zadig で **Interface 1 を変更してしまった** 可能性がある。
 - [TeraTerm](https://github.com/TeraTermProject/teraterm/releases)
 - [Syncthing](https://syncthing.net/)
 - [MSYS2](https://www.msys2.org/)
+
+### 既知の罠・トラブル参照（2026-05-10 セッション知見）
+
+- [apicula Issue #206 — GW1NR vs GW1N idcode](https://github.com/YosysHQ/apicula/issues/206)
+- [apicula Issue #262 — Tang Nano 9K bad checksum when flashing](https://github.com/YosysHQ/apicula/issues/262)
+- [openFPGALoader Issue #251 — Tang Nano 9k: cable issues](https://github.com/trabucayre/openFPGALoader/issues/251)
+- [openFPGALoader Issue #259 — GW1N-9C: flash CRC error](https://github.com/trabucayre/openFPGALoader/issues/259)
+- [Sipeed Wiki — Tang common questions（VLD Down 等の解決策）](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-Doc/questions.html)
+- [Gowin Programmer User Guide SUG502E（PDF）](https://cdn.gowinsemi.com.cn/SUG502E.pdf)
